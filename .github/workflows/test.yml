@@ -32,8 +32,6 @@ jobs:
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: 🔧 Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
@@ -49,16 +47,25 @@ jobs:
         env:
           CI: true
 
-      - name: 🔍 Verify installation
+      - name: 🔍 Verify project structure
         working-directory: ./calculadora
         run: |
-          npm list --depth=0
+          echo "=== Project Structure ==="
+          ls -la
+          echo "=== Source files ==="
+          ls -la src/
+          echo "=== Package.json scripts ==="
+          npm run
+
+      - name: 📝 TypeScript check
+        working-directory: ./calculadora
+        run: |
           npx tsc --noEmit
 
       - name: 🧪 Run unit tests
         working-directory: ./calculadora
         run: |
-          npm run test -- --coverage --watchAll=false --testTimeout=10000
+          npm run test -- --watchAll=false --testTimeout=10000
         env:
           NODE_ENV: test
           CI: true
@@ -71,22 +78,11 @@ jobs:
           NODE_ENV: test
           CI: true
 
-      - name: 📊 Upload coverage to Codecov
+      - name: 📊 Generate coverage (Node 22.x only)
         if: matrix.node-version == '22.x'
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./calculadora/coverage/lcov.info
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-
-      - name: 💾 Cache build artifacts
-        if: success()
-        uses: actions/cache@v4
-        with:
-          path: |
-            calculadora/dist
-            calculadora/coverage
-          key: build-artifacts-${{ runner.os }}-${{ matrix.node-version }}-${{ github.sha }}
-          restore-keys: |
-            build-artifacts-${{ runner.os }}-${{ matrix.node-version }}-
+        working-directory: ./calculadora
+        run: |
+          npm run test:cov -- --watchAll=false --testTimeout=10000
+        env:
+          NODE_ENV: test
+          CI: true

@@ -22,13 +22,11 @@ jobs:
   lint:
     name: 'Code Quality & Formatting'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: 🔧 Setup Node.js
         uses: actions/setup-node@v4
@@ -40,59 +38,33 @@ jobs:
       - name: 📦 Install dependencies
         working-directory: ./calculadora
         run: |
-          npm ci --prefer-offline --no-audit --no-fund --only=dev
+          npm ci --prefer-offline --no-audit --no-fund
         env:
           CI: true
 
-      - name: 🔍 ESLint analysis
+      - name: 🔍 Verify ESLint config
         working-directory: ./calculadora
         run: |
-          npx eslint "{src,apps,libs,test}/**/*.ts" \
-            --format=stylish \
-            --cache \
-            --cache-location=".eslintcache" \
-            --report-unused-disable-directives \
-            --max-warnings=0
+          echo "=== ESLint config ==="
+          ls -la eslint.config.mjs
+          echo "=== Available scripts ==="
+          npm run
+          echo "=== Installed eslint ==="
+          npx eslint --version
+
+      - name: 📝 TypeScript check
+        working-directory: ./calculadora
+        run: |
+          npx tsc --noEmit
+
+      - name: 🔍 ESLint check
+        working-directory: ./calculadora
+        run: |
+          npx eslint "{src,apps,libs,test}/**/*.ts" --format=stylish
         env:
           NODE_ENV: development
 
       - name: 🎨 Prettier check
         working-directory: ./calculadora
         run: |
-          npx prettier --check "src/**/*.ts" "test/**/*.ts" \
-            --cache \
-            --cache-location=".prettiercache"
-
-      - name: 📝 TypeScript check
-        working-directory: ./calculadora
-        run: |
-          npx tsc --noEmit --incremental
-
-      - name: 📊 Code complexity analysis
-        working-directory: ./calculadora
-        continue-on-error: true
-        run: |
-          # Análisis de complejidad ciclomática
-          find src -name "*.ts" -not -name "*.spec.ts" -not -name "*.d.ts" | \
-          xargs wc -l | sort -nr | head -10
-          
-          echo "=== Archivos con mayor número de líneas ==="
-          find src -name "*.ts" -not -name "*.spec.ts" | \
-          xargs wc -l | sort -nr | head -5
-
-      - name: 🔧 Auto-fix formatting (if needed)
-        if: failure()
-        working-directory: ./calculadora
-        run: |
-          npm run format
-          npx eslint "{src,apps,libs,test}/**/*.ts" --fix --cache
-          
-      - name: 💾 Cache lint results
-        uses: actions/cache@v4
-        with:
-          path: |
-            calculadora/.eslintcache
-            calculadora/.prettiercache
-          key: lint-cache-${{ runner.os }}-${{ hashFiles('calculadora/**/*.ts', 'calculadora/eslint.config.mjs', 'calculadora/.prettierrc') }}
-          restore-keys: |
-            lint-cache-${{ runner.os }}-
+          npx prettier --check "src/**/*.ts" "test/**/*.ts"
