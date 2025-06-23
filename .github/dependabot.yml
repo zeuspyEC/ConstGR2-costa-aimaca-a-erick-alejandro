@@ -1,0 +1,101 @@
+version: 2
+
+updates:
+  # Habilitar actualizaciones de npm para el directorio calculadora
+  - package-ecosystem: "npm"
+    directory: "/calculadora"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Guayaquil"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "Erick"
+    assignees:
+      - "Erick"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "automated"
+    
+    # Configuración de versionado semántico
+    versioning-strategy: increase
+    
+    # Agrupar actualizaciones relacionadas
+    groups:
+      nestjs:
+        patterns:
+          - "@nestjs/*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      testing:
+        patterns:
+          - "jest"
+          - "@types/jest"
+          - "supertest"
+          - "@types/supertest"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      linting:
+        patterns:
+          - "eslint*"
+          - "prettier"
+          - "@eslint/*"
+          - "typescript-eslint"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      typescript:
+        patterns:
+          - "typescript"
+          - "@types/*"
+          - "ts-*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Habilitar actualizaciones de GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+      timezone: "America/Guayaquil"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "Erick"
+    assignees:
+      - "Erick"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "github-actions"
+      - "automated"
+    
+    # Agrupar actualizaciones de actions relacionadas
+    groups:
+      setup-actions:
+        patterns:
+          - "actions/setup-*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      cache-actions:
+        patterns:
+          - "actions/cache*"
+          - "actions/upload-artifact"
+          - "actions/download-artifact"
+        update-types:
+          - "minor"
+          - "patch"

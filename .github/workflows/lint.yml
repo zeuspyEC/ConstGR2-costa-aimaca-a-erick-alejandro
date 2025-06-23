@@ -1,25 +1,98 @@
-name: Node Lint
-run-name: Lint nodejs app
-on: [push]
+name: 🔍 Code Quality
+run-name: 'Lint: ${{ github.ref_name }} by @${{ github.actor }}'
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'calculadora/**'
+      - '.github/workflows/lint.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'calculadora/**'
+      - '.github/workflows/lint.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
-    runs-on: self-hosted
+    name: 'Code Quality & Formatting'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
     steps:
-      - name: Descargar el repo
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Usar nodejs
+      - name: 🔧 Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22.x'
+          cache: 'npm'
+          cache-dependency-path: 'calculadora/package-lock.json'
 
-      - name: Instalar dependencias
+      - name: 📦 Install dependencies
         working-directory: ./calculadora
         run: |
-          npm install
+          npm ci --prefer-offline --no-audit --no-fund --only=dev
+        env:
+          CI: true
 
-      - name: Ejecutar lint
+      - name: 🔍 ESLint analysis
         working-directory: ./calculadora
         run: |
-          npm run lint
+          npx eslint "{src,apps,libs,test}/**/*.ts" \
+            --format=stylish \
+            --cache \
+            --cache-location=".eslintcache" \
+            --report-unused-disable-directives \
+            --max-warnings=0
+        env:
+          NODE_ENV: development
+
+      - name: 🎨 Prettier check
+        working-directory: ./calculadora
+        run: |
+          npx prettier --check "src/**/*.ts" "test/**/*.ts" \
+            --cache \
+            --cache-location=".prettiercache"
+
+      - name: 📝 TypeScript check
+        working-directory: ./calculadora
+        run: |
+          npx tsc --noEmit --incremental
+
+      - name: 📊 Code complexity analysis
+        working-directory: ./calculadora
+        continue-on-error: true
+        run: |
+          # Análisis de complejidad ciclomática
+          find src -name "*.ts" -not -name "*.spec.ts" -not -name "*.d.ts" | \
+          xargs wc -l | sort -nr | head -10
+          
+          echo "=== Archivos con mayor número de líneas ==="
+          find src -name "*.ts" -not -name "*.spec.ts" | \
+          xargs wc -l | sort -nr | head -5
+
+      - name: 🔧 Auto-fix formatting (if needed)
+        if: failure()
+        working-directory: ./calculadora
+        run: |
+          npm run format
+          npx eslint "{src,apps,libs,test}/**/*.ts" --fix --cache
+          
+      - name: 💾 Cache lint results
+        uses: actions/cache@v4
+        with:
+          path: |
+            calculadora/.eslintcache
+            calculadora/.prettiercache
+          key: lint-cache-${{ runner.os }}-${{ hashFiles('calculadora/**/*.ts', 'calculadora/eslint.config.mjs', 'calculadora/.prettierrc') }}
+          restore-keys: |
+            lint-cache-${{ runner.os }}-

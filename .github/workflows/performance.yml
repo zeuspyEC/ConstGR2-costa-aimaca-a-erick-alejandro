@@ -1,0 +1,268 @@
+name: ⚡ Performance Analysis
+run-name: 'Performance: ${{ github.ref_name }} by @${{ github.actor }}'
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'calculadora/src/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'calculadora/src/**'
+  schedule:
+    # Análisis de rendimiento semanal los domingos a las 2 AM
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WORKING_DIRECTORY: './calculadora'
+  NODE_OPTIONS: '--max-old-space-size=4096'
+
+jobs:
+  # ==========================================
+  # 📊 ANÁLISIS DE PERFORMANCE
+  # ==========================================
+  performance-analysis:
+    name: '📊 Performance Analysis'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Necesario para comparaciones
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+          cache-dependency-path: 'calculadora/package-lock.json'
+
+      - name: 📦 Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npm ci --prefer-offline --no-audit --no-fund
+
+      - name: 🏗️ Build with performance metrics
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          echo "=== Build Performance Analysis ==="
+          
+          # Medir tiempo de build
+          time npm run build
+          
+          echo "=== Build Output Analysis ==="
+          du -sh dist/
+          
+          # Analizar archivos generados
+          echo "=== Generated Files ==="
+          find dist -type f -name "*.js" -exec ls -lh {} + | sort -k5 -hr
+          
+          # Contar archivos
+          echo "Total JS files: $(find dist -name "*.js" | wc -l)"
+          echo "Total files: $(find dist -type f | wc -l)"
+
+      - name: 🧪 Test performance
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          echo "=== Test Performance ==="
+          
+          # Ejecutar tests con métricas de tiempo
+          time npm run test -- --verbose --passWithNoTests
+          
+          # Ejecutar tests de cobertura
+          echo "=== Coverage Performance ==="
+          time npm run test:cov -- --passWithNoTests
+
+      - name: 📊 Memory usage analysis
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          echo "=== Memory Usage Analysis ==="
+          
+          # Análisis de dependencias
+          echo "=== Dependency Size Analysis ==="
+          npm list --depth=0 --long 2>/dev/null | head -20
+          
+          # Análisis de node_modules
+          echo "=== Node Modules Size ==="
+          du -sh node_modules/
+          
+          # Top 10 largest packages
+          echo "=== Largest Packages ==="
+          du -sh node_modules/* 2>/dev/null | sort -hr | head -10
+
+      - name: 🔍 Bundle analysis (simulation)
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          echo "=== Bundle Analysis ==="
+          
+          # Analizar tamaño de archivos generados
+          echo "=== Dist folder breakdown ==="
+          find dist -type f -exec ls -lh {} + | awk '{print $5, $9}' | sort -hr
+          
+          # Verificar compresión potencial
+          echo "=== Compression potential ==="
+          for file in $(find dist -name "*.js" | head -5); do
+            original=$(stat --format=%s "$file")
+            compressed=$(gzip -c "$file" | wc -c)
+            ratio=$(echo "scale=2; $compressed * 100 / $original" | bc)
+            echo "$(basename $file): ${original} bytes -> ${compressed} bytes (${ratio}% compressed)"
+          done 2>/dev/null || echo "Compression analysis requires additional tools"
+
+      - name: ⚡ Performance recommendations
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          echo "=== Performance Recommendations ==="
+          
+          # Verificar configuraciones de optimización
+          if grep -q '"sourceMap": true' tsconfig.json; then
+            echo "⚠️ Source maps enabled - consider disabling for production"
+          fi
+          
+          # Verificar configuración de build
+          if grep -q '"build".*"nest build"' package.json; then
+            echo "✅ Using NestJS optimized build"
+          fi
+          
+          # Verificar dependencias de desarrollo en producción
+          dev_deps=$(npm list --prod --depth=0 2>/dev/null | grep -c "├─\|└─" || echo "0")
+          echo "Production dependencies: $dev_deps"
+          
+          if [ "$dev_deps" -lt 10 ]; then
+            echo "✅ Minimal production dependencies"
+          else
+            echo "⚠️ Consider reviewing production dependencies"
+          fi
+
+      - name: 📊 Create performance report
+        run: |
+          echo "## ⚡ Performance Analysis Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Build metrics
+          if [ -d "calculadora/dist" ]; then
+            dist_size=$(du -sh calculadora/dist | cut -f1)
+            file_count=$(find calculadora/dist -type f | wc -l)
+            echo "### 🏗️ Build Metrics" >> $GITHUB_STEP_SUMMARY
+            echo "- **Build size:** $dist_size" >> $GITHUB_STEP_SUMMARY
+            echo "- **Files generated:** $file_count" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Dependencies
+          if [ -d "calculadora/node_modules" ]; then
+            node_modules_size=$(du -sh calculadora/node_modules | cut -f1)
+            echo "### 📦 Dependencies" >> $GITHUB_STEP_SUMMARY
+            echo "- **Node modules size:** $node_modules_size" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "### 📊 Analysis Date" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+
+  # ==========================================
+  # 🔄 PERFORMANCE COMPARISON
+  # ==========================================
+  performance-comparison:
+    name: '🔄 Performance Comparison'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: 📥 Checkout current branch
+        uses: actions/checkout@v4
+        with:
+          path: current
+
+      - name: 📥 Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+          cache-dependency-path: |
+            current/calculadora/package-lock.json
+            base/calculadora/package-lock.json
+
+      - name: 📦 Install dependencies (current)
+        working-directory: current/calculadora
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: 📦 Install dependencies (base)
+        working-directory: base/calculadora
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: 🏗️ Build both versions
+        run: |
+          echo "=== Building current version ==="
+          cd current/calculadora && npm run build
+          
+          echo "=== Building base version ==="
+          cd base/calculadora && npm run build
+
+      - name: 📊 Compare performance
+        run: |
+          echo "=== Performance Comparison ==="
+          
+          current_size=$(du -sb current/calculadora/dist | cut -f1)
+          base_size=$(du -sb base/calculadora/dist | cut -f1)
+          
+          current_files=$(find current/calculadora/dist -type f | wc -l)
+          base_files=$(find base/calculadora/dist -type f | wc -l)
+          
+          echo "Current build size: $current_size bytes ($current_files files)"
+          echo "Base build size: $base_size bytes ($base_files files)"
+          
+          if [ "$current_size" -gt "$base_size" ]; then
+            diff=$(($current_size - $base_size))
+            echo "⚠️ Build size increased by $diff bytes"
+          elif [ "$current_size" -lt "$base_size" ]; then
+            diff=$(($base_size - $current_size))
+            echo "✅ Build size decreased by $diff bytes"
+          else
+            echo "➡️ Build size unchanged"
+          fi
+          
+          # Save comparison for summary
+          echo "CURRENT_SIZE=$current_size" >> $GITHUB_ENV
+          echo "BASE_SIZE=$base_size" >> $GITHUB_ENV
+          echo "CURRENT_FILES=$current_files" >> $GITHUB_ENV
+          echo "BASE_FILES=$base_files" >> $GITHUB_ENV
+
+      - name: 📊 Performance comparison summary
+        run: |
+          echo "## 🔄 Performance Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Base | Current | Change |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          # Calculate size change
+          if [ "${CURRENT_SIZE}" -gt "${BASE_SIZE}" ]; then
+            diff=$((${CURRENT_SIZE} - ${BASE_SIZE}))
+            change="📈 +${diff} bytes"
+          elif [ "${CURRENT_SIZE}" -lt "${BASE_SIZE}" ]; then
+            diff=$((${BASE_SIZE} - ${CURRENT_SIZE}))
+            change="📉 -${diff} bytes"
+          else
+            change="➡️ No change"
+          fi
+          
+          echo "| Build Size | ${BASE_SIZE} bytes | ${CURRENT_SIZE} bytes | ${change} |" >> $GITHUB_STEP_SUMMARY
+          echo "| File Count | ${BASE_FILES} | ${CURRENT_FILES} | $((${CURRENT_FILES} - ${BASE_FILES})) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Analysis for PR:** ${{ github.event.pull_request.title }}" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,240 @@
+name: 🚀 Deploy
+run-name: 'Deploy to ${{ inputs.environment || github.ref_name }}'
+
+on:
+  workflow_run:
+    workflows: ["🚀 CI/CD Pipeline"]
+    types:
+      - completed
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      force_deploy:
+        description: 'Force deployment even if tests failed'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: deploy-${{ inputs.environment || 'auto' }}
+  cancel-in-progress: false
+
+env:
+  WORKING_DIRECTORY: './calculadora'
+
+jobs:
+  # ==========================================
+  # 🔍 PRE-DEPLOYMENT CHECKS
+  # ==========================================
+  pre-deploy:
+    name: '🔍 Pre-deployment Checks'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: |
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      can-deploy: ${{ steps.checks.outputs.can-deploy }}
+      
+    steps:
+      - name: 🎯 Determine environment
+        id: env
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          else
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          fi
+
+      - name: ✅ Deployment checks
+        id: checks
+        run: |
+          can_deploy="true"
+          
+          # Check if force deployment or workflow succeeded
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            if [[ "${{ github.event.workflow_run.conclusion }}" != "success" ]]; then
+              can_deploy="false"
+              echo "❌ CI pipeline failed - cannot deploy"
+            fi
+          fi
+          
+          if [[ "${{ inputs.force_deploy }}" == "true" ]]; then
+            can_deploy="true"
+            echo "⚠️ Force deployment enabled"
+          fi
+          
+          echo "can-deploy=$can_deploy" >> $GITHUB_OUTPUT
+
+  # ==========================================
+  # 🏗️ BUILD FOR DEPLOYMENT
+  # ==========================================
+  build:
+    name: '🏗️ Production Build'
+    runs-on: ubuntu-latest
+    needs: pre-deploy
+    if: needs.pre-deploy.outputs.can-deploy == 'true'
+    timeout-minutes: 10
+    environment: ${{ needs.pre-deploy.outputs.environment }}
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+          cache-dependency-path: 'calculadora/package-lock.json'
+
+      - name: 📦 Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npm ci --omit=dev --prefer-offline --no-audit --no-fund
+        env:
+          NODE_ENV: production
+
+      - name: 🏗️ Build for production
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 🧹 Clean and optimize
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          # Remove source maps in production
+          find dist -name "*.map" -delete
+          
+          # Show build size
+          echo "=== Production Build Size ==="
+          du -sh dist/
+          
+          # List largest files
+          echo "=== Largest files ==="
+          find dist -type f -exec ls -lh {} + | sort -k5 -hr | head -10
+
+      - name: 📦 Create deployment package
+        run: |
+          tar -czf deployment-package.tar.gz \
+            -C calculadora \
+            dist package.json package-lock.json
+
+      - name: 💾 Upload deployment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-package-${{ needs.pre-deploy.outputs.environment }}
+          path: deployment-package.tar.gz
+          retention-days: 30
+
+  # ==========================================
+  # 🚀 DEPLOYMENT
+  # ==========================================
+  deploy:
+    name: '🚀 Deploy to ${{ needs.pre-deploy.outputs.environment }}'
+    runs-on: ubuntu-latest
+    needs: [pre-deploy, build]
+    timeout-minutes: 15
+    environment: 
+      name: ${{ needs.pre-deploy.outputs.environment }}
+      url: ${{ steps.deploy.outputs.url }}
+    
+    steps:
+      - name: 📥 Download deployment package
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-package-${{ needs.pre-deploy.outputs.environment }}
+
+      - name: 📦 Extract package
+        run: |
+          mkdir -p app
+          tar -xzf deployment-package.tar.gz -C app
+
+      - name: 🚀 Simulate deployment
+        id: deploy
+        run: |
+          echo "🚀 Deploying to ${{ needs.pre-deploy.outputs.environment }}..."
+          
+          # Simulate deployment steps
+          echo "✅ Package validated"
+          echo "✅ Dependencies verified"
+          echo "✅ Health checks passed"
+          
+          # Set deployment URL based on environment
+          if [[ "${{ needs.pre-deploy.outputs.environment }}" == "production" ]]; then
+            echo "url=https://calculadora.production.example.com" >> $GITHUB_OUTPUT
+          else
+            echo "url=https://calculadora.staging.example.com" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "🎉 Deployment completed successfully!"
+
+      - name: 🔍 Post-deployment verification
+        run: |
+          echo "🔍 Running post-deployment checks..."
+          
+          # Simulate health checks
+          echo "✅ Application is responding"
+          echo "✅ Database connection OK"
+          echo "✅ All services healthy"
+          
+          echo "📊 Deployment Summary:"
+          echo "- Environment: ${{ needs.pre-deploy.outputs.environment }}"
+          echo "- URL: ${{ steps.deploy.outputs.url }}"
+          echo "- Commit: ${{ github.sha }}"
+          echo "- Deployed by: @${{ github.actor }}"
+
+  # ==========================================
+  # 📊 DEPLOYMENT SUMMARY
+  # ==========================================
+  summary:
+    name: '📊 Deployment Summary'
+    runs-on: ubuntu-latest
+    needs: [pre-deploy, build, deploy]
+    if: always() && !cancelled()
+    timeout-minutes: 2
+    
+    steps:
+      - name: 📊 Create deployment summary
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.deploy.result }}" == "success" ]]; then
+            echo "✅ **Deployment Status:** SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "🌐 **Environment:** ${{ needs.pre-deploy.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **URL:** ${{ needs.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Deployment Status:** FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "🔍 **Check logs above for details**" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Details:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Deployed by: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Timestamp: $(date -u)" >> $GITHUB_STEP_SUMMARY
+
+      - name: ✅ Success notification
+        if: needs.deploy.result == 'success'
+        run: |
+          echo "🎉 ¡Deployment exitoso!"
+          echo "🌐 Aplicación disponible en: ${{ needs.deploy.outputs.url }}"
+
+      - name: ❌ Failure notification
+        if: needs.deploy.result == 'failure'
+        run: |
+          echo "❌ Deployment falló - revisa los logs"
+          exit 1

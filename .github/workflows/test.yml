@@ -1,25 +1,92 @@
-name: Node Test
-run-name: Test nodejs app
-on: [push]
+name: 🧪 Tests
+run-name: 'Tests: ${{ github.ref_name }} by @${{ github.actor }}'
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'calculadora/**'
+      - '.github/workflows/test.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'calculadora/**'
+      - '.github/workflows/test.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
-    runs-on: self-hosted
+    name: 'Tests (Node ${{ matrix.node-version }})'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+    
     steps:
-      - name: Descargar el repo
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Usar nodejs
+      - name: 🔧 Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: 'calculadora/package-lock.json'
 
-      - name: Instalar dependencias
+      - name: 📦 Install dependencies
         working-directory: ./calculadora
         run: |
-          npm install
+          npm ci --prefer-offline --no-audit --no-fund
+        env:
+          CI: true
 
-      - name: Ejecutar tests
+      - name: 🔍 Verify installation
         working-directory: ./calculadora
         run: |
-          npm run test
+          npm list --depth=0
+          npx tsc --noEmit
+
+      - name: 🧪 Run unit tests
+        working-directory: ./calculadora
+        run: |
+          npm run test -- --coverage --watchAll=false --testTimeout=10000
+        env:
+          NODE_ENV: test
+          CI: true
+
+      - name: 🧪 Run e2e tests
+        working-directory: ./calculadora
+        run: |
+          npm run test:e2e -- --testTimeout=30000
+        env:
+          NODE_ENV: test
+          CI: true
+
+      - name: 📊 Upload coverage to Codecov
+        if: matrix.node-version == '22.x'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./calculadora/coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: 💾 Cache build artifacts
+        if: success()
+        uses: actions/cache@v4
+        with:
+          path: |
+            calculadora/dist
+            calculadora/coverage
+          key: build-artifacts-${{ runner.os }}-${{ matrix.node-version }}-${{ github.sha }}
+          restore-keys: |
+            build-artifacts-${{ runner.os }}-${{ matrix.node-version }}-

@@ -1,27 +1,298 @@
-name: Node build
-run-name: Build, Lint y Test
-on: [push]
+name: 🚀 CI/CD Pipeline
+run-name: 'Pipeline: ${{ github.ref_name }} by @${{ github.actor }}'
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      skip_tests:
+        description: 'Skip tests'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22.x'
+  WORKING_DIRECTORY: './calculadora'
+
 jobs:
-  build:
-    runs-on: [self-hosted]
+  # ==========================================
+  # 🔍 ANÁLISIS INICIAL Y PREPARACIÓN
+  # ==========================================
+  prepare:
+    name: '🔍 Preparation & Analysis'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      cache-key: ${{ steps.cache-keys.outputs.key }}
+      node-modules-changed: ${{ steps.changes.outputs.dependencies }}
+      source-changed: ${{ steps.changes.outputs.source }}
+      tests-changed: ${{ steps.changes.outputs.tests }}
+      
     steps:
-      - name: Descargar el repo
+      - name: 📥 Checkout
         uses: actions/checkout@v4
-      - name: Usar nodejs
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Detect changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            dependencies:
+              - 'calculadora/package*.json'
+            source:
+              - 'calculadora/src/**'
+            tests:
+              - 'calculadora/test/**'
+              - 'calculadora/src/**/*.spec.ts'
+
+      - name: 🔑 Generate cache keys
+        id: cache-keys
+        run: |
+          echo "key=node-modules-${{ runner.os }}-${{ hashFiles('calculadora/package-lock.json') }}" >> $GITHUB_OUTPUT
+
+  # ==========================================
+  # 📦 INSTALACIÓN DE DEPENDENCIAS
+  # ==========================================
+  dependencies:
+    name: '📦 Dependencies'
+    runs-on: ubuntu-latest
+    needs: prepare
+    timeout-minutes: 8
+    if: needs.prepare.outputs.node-modules-changed == 'true' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
-      - name: Instalar dependencias
-        working-directory: ./calculadora
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'calculadora/package-lock.json'
+
+      - name: 📦 Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
         run: |
-          npm install
+          npm ci --prefer-offline --no-audit --no-fund
+          
+      - name: 💾 Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: calculadora/node_modules
+          key: ${{ needs.prepare.outputs.cache-key }}
 
-      - name: Ejecutar lint
-        working-directory: ./calculadora
-        run: npm run lint
+  # ==========================================
+  # 🔍 CALIDAD DE CÓDIGO
+  # ==========================================
+  quality:
+    name: '🔍 Code Quality'
+    runs-on: ubuntu-latest
+    needs: [prepare, dependencies]
+    timeout-minutes: 6
+    if: always() && !cancelled() && (needs.dependencies.result == 'success' || needs.dependencies.result == 'skipped')
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
 
-      - name: Compilar
-        working-directory: ./calculadora
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'calculadora/package-lock.json'
+
+      - name: 🔄 Restore dependencies
+        uses: actions/cache@v4
+        with:
+          path: calculadora/node_modules
+          key: ${{ needs.prepare.outputs.cache-key }}
+
+      - name: 📦 Install if cache miss
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: 🔍 ESLint
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npm run lint -- --cache --cache-location=".eslintcache" --format=compact
+
+      - name: 🎨 Prettier
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npx prettier --check "src/**/*.ts" "test/**/*.ts" --cache
+
+      - name: 📝 TypeScript
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: npx tsc --noEmit
+
+  # ==========================================
+  # 🏗️ BUILD
+  # ==========================================
+  build:
+    name: '🏗️ Build'
+    runs-on: ubuntu-latest
+    needs: [prepare, dependencies, quality]
+    timeout-minutes: 8
+    if: always() && !cancelled() && needs.quality.result == 'success'
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 🔄 Restore dependencies
+        uses: actions/cache@v4
+        with:
+          path: calculadora/node_modules
+          key: ${{ needs.prepare.outputs.cache-key }}
+
+      - name: 📦 Install if cache miss
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: 🏗️ Build application
+        working-directory: ${{ env.WORKING_DIRECTORY }}
         run: |
           npm run build
- 
+          
+      - name: 📊 Build analysis
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          echo "=== Build Output Analysis ==="
+          du -sh dist/
+          find dist -name "*.js" | wc -l
+          echo "=== Largest files ==="
+          find dist -name "*.js" -exec ls -lh {} + | sort -k5 -hr | head -5
+
+      - name: 💾 Cache build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            calculadora/dist
+          key: build-${{ runner.os }}-${{ github.sha }}
+
+  # ==========================================
+  # 🧪 TESTS
+  # ==========================================
+  test:
+    name: '🧪 Tests (Node ${{ matrix.node-version }})'
+    runs-on: ubuntu-latest
+    needs: [prepare, dependencies]
+    timeout-minutes: 12
+    if: always() && !cancelled() && (needs.dependencies.result == 'success' || needs.dependencies.result == 'skipped') && inputs.skip_tests != true
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20.x, 22.x]
+        test-type: [unit, e2e]
+        
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: 🔄 Restore dependencies
+        uses: actions/cache@v4
+        with:
+          path: calculadora/node_modules
+          key: ${{ needs.prepare.outputs.cache-key }}
+
+      - name: 📦 Install if cache miss
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: 🧪 Run unit tests
+        if: matrix.test-type == 'unit'
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npm run test -- --coverage --watchAll=false --testTimeout=10000 --maxWorkers=2
+        env:
+          NODE_ENV: test
+
+      - name: 🧪 Run e2e tests
+        if: matrix.test-type == 'e2e'
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npm run test:e2e -- --testTimeout=30000 --maxWorkers=1
+        env:
+          NODE_ENV: test
+
+      - name: 📊 Upload coverage
+        if: matrix.test-type == 'unit' && matrix.node-version == '22.x'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./calculadora/coverage/lcov.info
+          flags: unittests
+          fail_ci_if_error: false
+
+  # ==========================================
+  # 🎯 RESULTADO FINAL
+  # ==========================================
+  result:
+    name: '🎯 Pipeline Result'
+    runs-on: ubuntu-latest
+    needs: [prepare, quality, build, test]
+    if: always() && !cancelled()
+    timeout-minutes: 2
+    
+    steps:
+      - name: 📊 Pipeline Summary
+        run: |
+          echo "## 📊 Pipeline Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Quality | ${{ needs.quality.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Actor:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: ✅ Success
+        if: needs.quality.result == 'success' && needs.build.result == 'success' && (needs.test.result == 'success' || inputs.skip_tests == true)
+        run: |
+          echo "🎉 ¡Pipeline ejecutado exitosamente!"
+          echo "✅ Calidad de código: PASSED"
+          echo "✅ Build: PASSED" 
+          echo "✅ Tests: ${{ inputs.skip_tests == true && 'SKIPPED' || 'PASSED' }}"
+
+      - name: ❌ Failure
+        if: needs.quality.result == 'failure' || needs.build.result == 'failure' || needs.test.result == 'failure'
+        run: |
+          echo "❌ Pipeline falló - revisa los logs para más detalles"
+          exit 1
