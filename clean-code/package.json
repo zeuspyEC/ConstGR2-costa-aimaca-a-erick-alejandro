@@ -1,0 +1,37 @@
+{
+  "name": "constgr2-yugsi-imaicela-jeremy-eduardo",
+  "version": "1.0.0",
+  "description": "Hola mundo",
+  "main": "index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn src/index.ts",
+  "build": "tsc",
+  "start": "node dist/index.js",
+  "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/2025A-Constr-SWGR2/ConstGr2-yugsi-imaicela-jeremy-eduardo.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/2025A-Constr-SWGR2/ConstGr2-yugsi-imaicela-jeremy-eduardo/issues"
+  },
+  "homepage": "https://github.com/2025A-Constr-SWGR2/ConstGr2-yugsi-imaicela-jeremy-eduardo#readme",
+  "dependencies": {
+    "ejs": "^3.1.10",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.0.3",
+    "jest": "^30.0.0",
+    "ts-jest": "^29.4.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.8.3"
+  }
+  
+}

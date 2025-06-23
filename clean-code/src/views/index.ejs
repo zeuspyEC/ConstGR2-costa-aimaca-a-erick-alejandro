@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Calculadora BAC</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <h1>Calculadora de Alcohol en Sangre (BAC)</h1>
+  <form action="/calculate" method="POST">
+    <input type="number" name="weight" placeholder="Peso (kg)" step="0.1" min="0" required />
+    <input type="number" name="alcohol" placeholder="Alcohol ingerido (g)" step="0.1" min="0" required />
+    <select name="gender" required>
+      <option value="male">Hombre</option>
+      <option value="female">Mujer</option>
+    </select>
+    <input type="number" name="hours" placeholder="Horas desde el último trago" step="0.1" min="0" required />
+    <button type="submit">Calcular</button>
+  </form>
+  <% if (result) { %>
+    <p><%= result %></p>
+  <% } %>
+</body>
+</html>
