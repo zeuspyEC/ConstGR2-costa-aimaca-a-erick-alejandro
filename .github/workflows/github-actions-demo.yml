@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '22.x'
+  NODE_VERSION: '20.x'
   WORKING_DIRECTORY: './calculadora'
 
 jobs:
@@ -50,8 +50,8 @@ jobs:
           npm --version
           echo "=== Project structure ==="
           ls -la
-          echo "=== Dependencies installed ==="
-          npm list --depth=0
+          echo "=== Source files ==="
+          ls -la src/
 
   # ==========================================
   # 🔍 CALIDAD DE CÓDIGO
@@ -81,13 +81,13 @@ jobs:
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: npx tsc --noEmit
 
-      - name: 🔍 ESLint
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        run: npx eslint "{src,apps,libs,test}/**/*.ts" --format=stylish
-
       - name: 🎨 Prettier check
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: npx prettier --check "src/**/*.ts" "test/**/*.ts"
+
+      - name: 🔍 ESLint
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: npx eslint "{src,apps,libs,test}/**/*.ts" --format=stylish --max-warnings=10
 
   # ==========================================
   # 🧪 TESTS
@@ -163,9 +163,13 @@ jobs:
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: |
           echo "=== Build Output Analysis ==="
-          du -sh dist/ || echo "Dist folder size could not be calculated"
-          find dist -name "*.js" | wc -l || echo "JS files could not be counted"
-          echo "=== Build completed successfully ==="
+          if [ -d "dist" ]; then
+            du -sh dist/ || echo "Could not calculate size"
+            find dist -name "*.js" | wc -l || echo "Could not count files"
+            echo "=== Build completed successfully ==="
+          else
+            echo "Dist folder not found"
+          fi
 
   # ==========================================
   # 🎯 RESULTADO FINAL
