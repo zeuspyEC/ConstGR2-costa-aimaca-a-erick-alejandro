@@ -152,7 +152,7 @@ jobs:
     
     steps:
       - name: 📥 Download deployment package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: deployment-package-${{ needs.pre-deploy.outputs.environment }}
 
